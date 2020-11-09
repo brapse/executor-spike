@@ -5,45 +5,38 @@ use std::thread;
 use std::pin::Pin;
 
 fn main() {
-    println!("Hello, world!");
-    // Start a runtime
-    let mut rt = TokioRuntime::new().unwrap();
+    let rt = Runtime::new();
+    let handle = rt.handle();
 
-    let my_func = async {
-        println!("inline async");
-    };
-
-    let (sender, receiver) = channel();
-    let (stop, stopped) = channel::<()>();
-
-    sender.send(Box::pin(my_func)).unwrap();
     thread::spawn(move || {
-        let recv_msg= receiver.recv().unwrap();
-        rt.block_on(recv_msg);
-        stop.send(()).unwrap();
+        rt.run();
     });
 
-    println!("waiting");
-    stopped.recv().unwrap();
+    let response = handle.async_test();
+    println!("response: {}", response);
 }
 
 struct Handle {
-    sender: Sender<Pin<Box<dyn Future<Output=()> + 'static>>>,
+    sender: Sender<(Pin<Box<dyn Future<Output=u32> + 'static + Send>>, Sender<u32>)>,
+}
+
+
+async fn my_func() -> u32 {
+    println!("async_test exec");
+    return 42
 }
 
 impl Handle {
-    fn async_test(&self) {
-        let my_func = async {
-            println!("async_test exec");
-        };
-
-        self.sender.send(Box::pin(my_func)).unwrap();
+    fn async_test(&self) -> u32 {
+        let (tx, rx) = channel();
+        self.sender.send((Box::pin(my_func()), tx)).unwrap();
+        return rx.recv().unwrap()
     }
 }
 
 struct Runtime {
-    sender: Sender<Pin<Box<dyn Future<Output=()> + 'static>>>,
-    receiver: Receiver<Pin<Box<dyn Future<Output=()> + 'static>>>,
+    sender: Sender<(Pin<Box<dyn Future<Output=u32> + 'static + Send>>, Sender<u32>)>,
+    receiver: Receiver<(Pin<Box<dyn Future<Output=u32> + 'static + Send>>, Sender<u32>)>,
     inner: TokioRuntime,
 }
 
@@ -65,8 +58,11 @@ impl Runtime {
     }
 
     pub fn run(mut self) {
-        for async_fn in self.receiver.iter() {
-            self.inner.block_on(async_fn);
+        println!("Running started");
+        for (async_fn, sender) in self.receiver.iter() {
+            println!("Running dequeue");
+            let result = self.inner.block_on(async_fn);
+            sender.send(result).unwrap();
         }
         println!("runtime exit");
     }
