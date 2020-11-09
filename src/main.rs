@@ -61,8 +61,11 @@ impl Runtime {
         println!("Running started");
         for (async_fn, sender) in self.receiver.iter() {
             println!("Running dequeue");
-            let result = self.inner.block_on(async_fn);
-            sender.send(result).unwrap();
+            let task = async move {
+                let res = async_fn.await;
+                sender.send(res).unwrap();
+            };
+            self.inner.spawn(task);
         }
         println!("runtime exit");
     }
