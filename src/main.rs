@@ -57,7 +57,7 @@ impl Runtime {
         }
     }
 
-    pub fn run(mut self) {
+    pub fn run(self) {
         println!("Running started");
         for (async_fn, sender) in self.receiver.iter() {
             println!("Running dequeue");
